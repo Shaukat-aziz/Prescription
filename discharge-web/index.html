@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discharge Summary Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root{
+    --ink:#132029; --muted:#5a6b78; --line:#dbe3e8; --bg:#eef2f5; --panel:#fff;
+    --accent:#0f6e6e; --accent-d:#0a5555; --chip:#f1f5f7; --danger:#b23a2e; --r:11px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+
+  /* App bar */
+  .appbar{position:sticky;top:0;z-index:30;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:11px 18px}
+  .appbar .mark{width:30px;height:30px;border-radius:8px;background:var(--accent);color:#fff;
+    display:grid;place-items:center;font-weight:700;flex:none}
+  .appbar h1{font-size:16px;margin:0;letter-spacing:.2px}
+  .appbar .sub{font-size:11.5px;color:var(--muted)}
+  .appbar .spacer{flex:1}
+  .appbar .desk{display:flex;gap:8px}
+  @media(max-width:880px){.appbar .desk{display:none}}
+
+  .app{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px)}
+  .form-pane{padding:18px 20px 130px;height:calc(100vh - 53px);overflow-y:auto}
+  .preview-pane{background:#dbe2e7;padding:22px;height:calc(100vh - 53px);overflow-y:auto;border-left:1px solid var(--line)}
+  @media(max-width:880px){
+    .app{grid-template-columns:1fr}
+    .preview-pane{display:none;height:auto}
+    body.show-preview .form-pane{display:none}
+    body.show-preview .preview-pane{display:block;height:auto}
+  }
+
+  /* Sections */
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:13px;overflow:hidden}
+  .section>summary{list-style:none;cursor:pointer;padding:13px 15px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:10px;user-select:none}
+  .section>summary::-webkit-details-marker{display:none}
+  .section>summary .num{background:var(--accent);color:#fff;width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:none}
+  .section>summary .chev{margin-left:auto;color:var(--muted);transition:transform .15s}
+  .section[open]>summary .chev{transform:rotate(90deg)}
+  .section-body{padding:2px 15px 16px}
+
+  .field{margin:10px 0}
+  .field>label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  input[type=text],input[type=date],input[type=number],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;color:var(--ink);background:#fff}
+  textarea{min-height:74px;resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>.field{flex:1;min-width:120px;margin:0}
+
+  .opts{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+  .opt{display:inline-flex;align-items:center;padding:7px 12px;border:1px solid var(--line);border-radius:999px;
+    background:var(--chip);cursor:pointer;font-size:13.5px;user-select:none;transition:.12s}
+  .opt:hover{border-color:var(--accent)}
+  .opt.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .add-custom{display:flex;gap:8px;margin-top:10px}
+  .add-custom input{flex:1}
+
+  button{font:inherit;cursor:pointer}
+  .btn{background:var(--accent);color:#fff;border:none;padding:9px 15px;border-radius:9px;font-weight:600}
+  .btn:hover{background:var(--accent-d)}
+  .btn.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  .btn.ghost:hover{background:#eefaf9}
+  .btn.small{padding:7px 11px;font-size:13px}
+
+  .med-row{display:grid;grid-template-columns:1.7fr .8fr .8fr .9fr auto;gap:6px;align-items:center;margin-bottom:7px}
+  .med-row input,.med-row select{padding:7px 8px;font-size:13.5px}
+  .med-row .del{background:#fff;border:1px solid var(--line);color:var(--danger);border-radius:8px;width:32px;height:34px;font-size:17px}
+  @media(max-width:560px){.med-row{grid-template-columns:1fr 1fr}.med-row .del{grid-column:2;justify-self:end}}
+
+  .logo-tools{display:flex;align-items:center;gap:12px;margin-top:6px}
+  .logo-tools img{width:46px;height:46px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:7px}
+
+  /* Action bar (mobile) */
+  .actionbar{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);
+    padding:10px 16px;display:flex;gap:10px;align-items:center;z-index:25;box-shadow:0 -4px 16px rgba(0,0,0,.06)}
+  .actionbar .spacer{flex:1}
+  .mobile-only{display:none}
+  @media(max-width:880px){.mobile-only{display:inline-flex}}
+  @media(min-width:881px){.actionbar{display:none}}
+
+  /* Preview sheet (A4 proportion) */
+  .sheet-wrap{max-width:520px;margin:0 auto}
+  .sheet{background:#fff;padding:30px 34px;box-shadow:0 6px 24px rgba(0,0,0,.14);
+    font-family:Georgia,"Times New Roman",serif;color:#111;line-height:1.5;min-height:735px}
+  .sheet .head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #111;padding-bottom:10px}
+  .sheet .head img{width:52px;height:52px;object-fit:contain;flex:none}
+  .sheet .head .ht{flex:1;text-align:center}
+  .sheet .head .hosp{font-size:18px;font-weight:700}
+  .sheet .head .dept{font-size:12.5px;margin-top:1px}
+  .sheet .head .doc{font-size:11px;letter-spacing:2px;font-weight:700;margin-top:6px}
+  .sheet .pt{display:grid;grid-template-columns:1fr 1fr;gap:1px 22px;font-size:13px;margin:11px 0 6px}
+  .sheet .pt div{padding:2px 0;border-bottom:1px dotted #bbb}
+  .sheet h3{font-size:11.5px;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #999;padding-bottom:2px;margin:14px 0 6px}
+  .sheet p,.sheet ul{font-size:13px;margin:3px 0}
+  .sheet ul{padding-left:19px}
+  .sheet table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:3px}
+  .sheet th,.sheet td{border:1px solid #999;padding:4px 7px;text-align:left}
+  .sheet th{background:#f0f0f0}
+  .sheet .sign{margin-top:30px;display:flex;justify-content:space-between;font-size:12px}
+  .sheet .sign .b{width:180px;text-align:center;border-top:1px solid #111;padding-top:3px}
+  .empty{color:#aaa;font-style:italic}
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  <div class="mark">Rx</div>
+  <div>
+    <h1>Discharge Summary Generator</h1>
+    <div class="sub">Select options → download a formatted PDF. Runs entirely in the browser.</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="desk">
+    <button class="btn ghost small" onclick="clearAll()">Clear</button>
+    <button class="btn small" onclick="downloadPDF()">Download PDF</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="form-pane" id="form"></div>
+  <div class="preview-pane">
+    <div class="sheet-wrap"><div class="sheet" id="sheet"></div></div>
+  </div>
+</div>
+
+<div class="actionbar">
+  <button class="btn ghost small mobile-only" id="prevBtn" onclick="togglePreview()">Preview ›</button>
+  <div class="spacer"></div>
+  <button class="btn ghost small" onclick="clearAll()">Clear</button>
+  <button class="btn" onclick="downloadPDF()">Download PDF</button>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — set once before publishing to your website
+   ============================================================ */
+const CONFIG = {
+  hospital: "Tirunelveli Medical College Hospital",
+  department: "Department of General Medicine — M-IV Unit",
+  logoDataUrl: null   // paste a "data:image/png;base64,..." string to bake in a logo
+};
+
+/* ============================================================
+   SECTIONS — add / reorder / rename headings here (one place)
+   kind: 'multi' | 'single' | 'phrases' | 'meds' | 'followup'
+   join (multi only): 'bullets' | 'commas' | 'dots'
+   ============================================================ */
+const SECTIONS = [
+  {id:'dx', title:'Final Diagnosis', kind:'multi', join:'bullets', options:[
+    'Acute febrile illness','Dengue fever','Leptospirosis','Scrub typhus','Enteric fever',
+    'Community-acquired pneumonia','Acute exacerbation of COPD','Bronchial asthma',
+    'Acute gastroenteritis','Acute pancreatitis','Acute kidney injury','Chronic kidney disease',
+    'Diabetic ketoacidosis','Uncontrolled type 2 diabetes','Hypertensive emergency',
+    'Acute coronary syndrome','Congestive cardiac failure','CVA — ischaemic','CVA — haemorrhagic',
+    'Seizure disorder','Decompensated chronic liver disease','Upper GI bleed','Anaemia — under evaluation',
+    'Cellulitis','Urinary tract infection','Alcohol withdrawal','Snake bite','Organophosphate poisoning']},
+  {id:'cm', title:'Comorbidities', kind:'multi', join:'commas', options:[
+    'Type 2 diabetes mellitus','Systemic hypertension','Coronary artery disease','Chronic kidney disease',
+    'COPD','Bronchial asthma','Hypothyroidism','Old CVA','Seizure disorder','Chronic liver disease',
+    'Retroviral disease','Pulmonary tuberculosis (treated)','Rheumatic heart disease']},
+  {id:'cc', title:'Presenting Complaints', kind:'multi', join:'commas', options:[
+    'Fever','Cough','Breathlessness','Chest pain','Abdominal pain','Vomiting','Loose stools',
+    'Headache','Giddiness','Altered sensorium','Decreased urine output','Pedal oedema','Jaundice',
+    'Bleeding manifestations','Seizures','Weakness of limbs','Generalized weakness','Loss of appetite']},
+  {id:'ix', title:'Relevant Investigations', kind:'multi', join:'dots', options:[
+    'Hb','TLC','Platelet count','Blood sugar (RBS)','Urea','Creatinine','Na+ / K+','LFT',
+    'Dengue NS1/IgM','Widal','Blood culture','Urine routine','ECG','Chest X-ray','USG abdomen',
+    'CT brain','HbA1c','Serum electrolytes']},
+  {id:'course', title:'Course of Illness', kind:'phrases', options:[
+    'Patient was admitted and evaluated. ','Started on IV fluids and antibiotics. ',
+    'Managed conservatively with supportive care. ','Symptomatically improved over the hospital stay. ',
+    'Vitals remained stable throughout. ','Was monitored in ICU and later shifted to ward. ',
+    'Blood sugars were controlled with insulin. ','Nebulisation and bronchodilators were given. ',
+    'Patient is being discharged in a stable condition on request. ']},
+  {id:'tx', title:'Treatment Given', kind:'multi', join:'commas', options:[
+    'IV fluids','IV antibiotics','Oral antibiotics','Antipyretics','Nebulisation','Oxygen supplementation',
+    'IV Pantoprazole','Insulin (sliding scale)','Diuretics','Antihypertensives','Blood transfusion',
+    'Platelet transfusion','Analgesics','Antiemetics','Anticonvulsants','Nasogastric feeding',
+    'Foley catheterisation','Non-invasive ventilation (BiPAP)','Vasopressor support','Physiotherapy']},
+  {id:'cond', title:'Condition at Discharge', kind:'single', options:[
+    'Stable / improved','Symptomatically better','Discharged on request',
+    'Discharged against medical advice','Referred to higher centre']},
+  {id:'meds', title:'Discharge Medications', kind:'meds'},
+  {id:'diet', title:'Diet', kind:'single', options:[
+    'Normal diet','Diabetic diet','Salt-restricted diet','Renal diet','Soft / liquid diet','Low-protein diet']},
+  {id:'followup', title:'Follow-up', kind:'followup'},
+  {id:'adv', title:'Discharge Advice', kind:'multi', join:'bullets', options:[
+    'Take medications as prescribed','Continue regular medications','Monitor blood sugar at home',
+    'Monitor blood pressure at home','Adequate oral hydration','Complete the antibiotic course',
+    'Avoid alcohol and smoking','Salt and fluid restriction','Physiotherapy as advised','Wound care as advised']},
+  {id:'rf', title:'Report Immediately If', kind:'multi', join:'commas', options:[
+    'High-grade fever','Breathlessness','Chest pain','Severe abdominal pain','Persistent vomiting',
+    'Decreased urine output','Altered sensorium','Bleeding','Seizures']}
+];
+
+const DRUGS=['Tab. Paracetamol 500 mg','Tab. Azithromycin 500 mg','Tab. Amoxicillin-Clavulanate 625 mg',
+  'Tab. Doxycycline 100 mg','Tab. Pantoprazole 40 mg','Tab. Metformin 500 mg','Tab. Telmisartan 40 mg',
+  'Tab. Amlodipine 5 mg','Tab. Atorvastatin 20 mg','Tab. Aspirin 75 mg','Tab. Clopidogrel 75 mg',
+  'Tab. Furosemide 40 mg','Tab. Prednisolone 10 mg','Tab. Levetiracetam 500 mg','Tab. Thyroxine 50 mcg',
+  'Tab. Ondansetron 4 mg','Cap. Omeprazole 20 mg','Syp. Cough expectorant','Inj. Insulin (as charted)',
+  'Nebulisation Salbutamol + Ipratropium','Tab. Ferrous sulphate','Tab. Multivitamin'];
+const DOSE=['½ tab','1 tab','2 tabs','5 ml','10 ml','1 puff','2 puffs','As charted'];
+const FREQ=['OD','BD','TDS','QID','HS','SOS','Stat','Weekly'];
+const DUR=['3 days','5 days','7 days','10 days','15 days','1 month','Continue','Review'];
+
+/* ============================================================
+   State
+   ============================================================ */
+const S={
+  fields:{hospital:CONFIG.hospital,department:CONFIG.department,name:'',age:'',sex:'',ipno:'',ward:'',
+          doa:'',dod:'',fuUnit:'General Medicine OPD',fuDate:'',preparedBy:'',consultant:'Dr. Rajesh'},
+  sel:{}, freeText:{}, custom:{}, meds:[{name:'',dose:'1 tab',freq:'BD',dur:'5 days'}],
+  logo:CONFIG.logoDataUrl, logoDims:null
+};
+SECTIONS.forEach(s=>{S.sel[s.id]=new Set();S.custom[s.id]=[];if(s.kind==='phrases')S.freeText[s.id]='';});
+
+/* ============================================================
+   Build the form from SECTIONS
+   ============================================================ */
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
+
+function buildForm(){
+  const f=document.getElementById('form');
+  let n=0;
+  const sec=(title,body,open)=>{
+    n++;
+    const d=el(`<details class="section" ${open?'open':''}>
+      <summary><span class="num">${n}</span> ${title} <span class="chev">›</span></summary>
+      <div class="section-body"></div></details>`);
+    d.querySelector('.section-body').appendChild(body);
+    f.appendChild(d);
+  };
+
+  // Institution
+  const inst=el('<div></div>');
+  inst.appendChild(textField('Hospital','hospital'));
+  inst.appendChild(textField('Department / Unit','department'));
+  const logo=el(`<div class="field"><label>Hospital logo</label>
+    <div class="logo-tools">
+      <img id="logoPrev" alt="" style="${S.logo?'':'display:none'}" src="${S.logo||''}">
+      <label class="btn ghost small" style="cursor:pointer">Upload logo<input type="file" accept="image/*" hidden id="logoInput"></label>
+      <button class="btn ghost small" id="logoClear" style="${S.logo?'':'display:none'}">Remove</button>
+    </div>
+    <div class="hint">Shown at the top of the PDF. PNG/JPG, square works best.</div></div>`);
+  inst.appendChild(logo);
+  sec('Institution',inst,true);
+
+  // Patient
+  const pt=el('<div></div>');
+  pt.appendChild(textField('Name','name'));
+  const r1=el('<div class="row"></div>');
+  r1.appendChild(textField('Age','age',{type:'number'}));
+  r1.appendChild(selectField('Sex','sex',['','Male','Female','Other']));
+  r1.appendChild(textField('IP No.','ipno'));
+  pt.appendChild(r1);
+  pt.appendChild(textField('Ward / Bed','ward'));
+  const r2=el('<div class="row"></div>');
+  r2.appendChild(textField('Date of admission','doa',{type:'date'}));
+  r2.appendChild(textField('Date of discharge','dod',{type:'date'}));
+  pt.appendChild(r2);
+  sec('Patient details',pt,true);
+
+  // Config-driven sections
+  SECTIONS.forEach(s=>{
+    let body;
+    if(s.kind==='multi'||s.kind==='single') body=chipSection(s);
+    else if(s.kind==='phrases') body=phraseSection(s);
+    else if(s.kind==='meds') body=medsSection(s);
+    else if(s.kind==='followup') body=followupSection();
+    sec(s.title,body,s.id==='dx'||s.id==='meds');
+  });
+
+  // Sign-off
+  const so=el('<div class="row"></div>');
+  so.appendChild(textField('Prepared by (JR / CRRI)','preparedBy'));
+  so.appendChild(textField('Consultant / Chief','consultant'));
+  sec('Sign-off',so,false);
+
+  wireLogo();
+}
+
+function textField(label,key,opt={}){
+  const d=el(`<div class="field"><label>${label}</label>
+    <input type="${opt.type||'text'}" value="${esc(S.fields[key])}"></div>`);
+  const i=d.querySelector('input');
+  i.addEventListener('input',()=>{S.fields[key]=i.value;render();});
+  return d;
+}
+function selectField(label,key,options){
+  const d=el(`<div class="field"><label>${label}</label><select>
+    ${options.map(o=>`<option value="${o}" ${S.fields[key]===o?'selected':''}>${o||'—'}</option>`).join('')}
+    </select></div>`);
+  const s=d.querySelector('select');
+  s.addEventListener('change',()=>{S.fields[key]=s.value;render();});
+  return d;
+}
+
+function chipSection(s){
+  const wrap=el('<div></div>');
+  const opts=el('<div class="opts"></div>');
+  const draw=()=>{
+    opts.innerHTML='';
+    [...s.options,...S.custom[s.id]].forEach(o=>{
+      const c=el(`<span class="opt ${S.sel[s.id].has(o)?'on':''}">${esc(o)}</span>`);
+      c.onclick=()=>{
+        if(s.kind==='single'){const was=S.sel[s.id].has(o);S.sel[s.id].clear();if(!was)S.sel[s.id].add(o);}
+        else{S.sel[s.id].has(o)?S.sel[s.id].delete(o):S.sel[s.id].add(o);}
+        draw();render();
+      };
+      opts.appendChild(c);
+    });
+  };
+  draw();
+  wrap.appendChild(opts);
+  if(s.kind==='multi'){
+    const add=el(`<div class="add-custom"><input type="text" placeholder="Add another…">
+      <button class="btn ghost small">Add</button></div>`);
+    const inp=add.querySelector('input'),btn=add.querySelector('button');
+    const go=()=>{const v=inp.value.trim();if(!v)return;S.custom[s.id].push(v);S.sel[s.id].add(v);inp.value='';draw();render();};
+    btn.onclick=go;inp.addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+    wrap.appendChild(add);
+  }
+  return wrap;
+}
+
+function phraseSection(s){
+  const wrap=el('<div></div>');
+  const opts=el('<div class="opts"></div>');
+  const ta=el(`<textarea placeholder="Patient was admitted with… managed with…">${esc(S.freeText[s.id])}</textarea>`);
+  s.options.forEach(o=>{
+    const c=el(`<span class="opt ${S.sel[s.id].has(o)?'on':''}">${esc(o.trim())}</span>`);
+    c.onclick=()=>{
+      S.sel[s.id].has(o)?S.sel[s.id].delete(o):S.sel[s.id].add(o);
+      S.freeText[s.id]=[...S.sel[s.id]].join('');
+      ta.value=S.freeText[s.id];
+      c.classList.toggle('on');render();
+    };
+    opts.appendChild(c);
+  });
+  ta.addEventListener('input',()=>{S.freeText[s.id]=ta.value;render();});
+  wrap.appendChild(opts);
+  wrap.appendChild(el('<div class="field" style="margin-top:12px"><label>Free text (edit / add)</label></div>')).appendChild(ta);
+  wrap.appendChild(el('<div class="hint">Tap phrases to insert, then edit freely.</div>'));
+  return wrap;
+}
+
+function medsSection(){
+  const wrap=el('<div></div>');
+  const list=el('<div id="medList"></div>');
+  const draw=()=>{
+    list.innerHTML='';
+    S.meds.forEach((m,i)=>{
+      const row=el(`<div class="med-row">
+        <input type="text" list="druglist" placeholder="Drug name" value="${esc(m.name)}">
+        <select>${DOSE.map(o=>`<option ${o===m.dose?'selected':''}>${o}</option>`).join('')}</select>
+        <select>${FREQ.map(o=>`<option ${o===m.freq?'selected':''}>${o}</option>`).join('')}</select>
+        <select>${DUR.map(o=>`<option ${o===m.dur?'selected':''}>${o}</option>`).join('')}</select>
+        <button class="del" title="Remove">×</button></div>`);
+      const [nameI,doseS,freqS,durS]=row.querySelectorAll('input,select');
+      nameI.addEventListener('input',()=>{m.name=nameI.value;render();});
+      doseS.addEventListener('change',()=>{m.dose=doseS.value;render();});
+      freqS.addEventListener('change',()=>{m.freq=freqS.value;render();});
+      durS.addEventListener('change',()=>{m.dur=durS.value;render();});
+      row.querySelector('.del').onclick=()=>{S.meds.splice(i,1);draw();render();};
+      list.appendChild(row);
+    });
+  };
+  draw();
+  wrap.appendChild(list);
+  const add=el('<button class="btn ghost small">+ Add medication</button>');
+  add.onclick=()=>{S.meds.push({name:'',dose:'1 tab',freq:'BD',dur:'5 days'});draw();render();};
+  wrap.appendChild(add);
+  wrap.appendChild(el('<div class="hint">Type a drug name for suggestions. Dose / frequency / duration are dropdowns.</div>'));
+  return wrap;
+}
+
+function followupSection(){
+  const wrap=el('<div></div>');
+  const r=el('<div class="row"></div>');
+  r.appendChild(textField('Review in (Dept / Unit)','fuUnit'));
+  r.appendChild(textField('Follow-up date','fuDate',{type:'date'}));
+  wrap.appendChild(r);
+  return wrap;
+}
+
+function wireLogo(){
+  const input=document.getElementById('logoInput');
+  const prev=document.getElementById('logoPrev');
+  const clr=document.getElementById('logoClear');
+  input.addEventListener('change',e=>{
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=()=>{S.logo=r.result;prev.src=r.result;prev.style.display='';clr.style.display='';
+      const im=new Image();im.onload=()=>{S.logoDims={w:im.width,h:im.height};render();};im.src=r.result;render();};
+    r.readAsDataURL(file);
+  });
+  clr.addEventListener('click',()=>{S.logo=null;S.logoDims=null;prev.style.display='none';clr.style.display='none';input.value='';render();});
+  if(S.logo){const im=new Image();im.onload=()=>{S.logoDims={w:im.width,h:im.height};};im.src=S.logo;}
+}
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+function fmtDate(s){if(!s)return '—';const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
+function stay(){const a=S.fields.doa,b=S.fields.dod;if(!a||!b)return '';const d=Math.round((new Date(b)-new Date(a))/864e5);return d>=0?` (${d} day${d===1?'':'s'})`:'';}
+function joinBy(arr,how){return how==='dots'?arr.join('   ·   '):arr.join(', ');}
+
+/* ============================================================
+   Live preview
+   ============================================================ */
+function sectionHTML(s){
+  if(s.kind==='multi'){const it=[...S.sel[s.id]];if(!it.length)return '';
+    const body=s.join==='bullets'?`<ul>${it.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:`<p>${esc(joinBy(it,s.join))}</p>`;
+    return `<h3>${s.title}</h3>${body}`;}
+  if(s.kind==='single'){const v=[...S.sel[s.id]][0];return v?`<h3>${s.title}</h3><p>${esc(v)}</p>`:'';}
+  if(s.kind==='phrases'){const t=(S.freeText[s.id]||'').trim();return t?`<h3>${s.title}</h3><p>${esc(t)}</p>`:'';}
+  if(s.kind==='meds'){const m=S.meds.filter(x=>x.name.trim());if(!m.length)return '';
+    return `<h3>${s.title}</h3><table><thead><tr><th>Drug</th><th>Dose</th><th>Frequency</th><th>Duration</th></tr></thead>
+      <tbody>${m.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.dose)}</td><td>${esc(x.freq)}</td><td>${esc(x.dur)}</td></tr>`).join('')}</tbody></table>`;}
+  if(s.kind==='followup'){const u=S.fields.fuUnit.trim();if(!u&&!S.fields.fuDate)return '';
+    return `<h3>${s.title}</h3><p>Review in <b>${esc(u||'—')}</b> on <b>${fmtDate(S.fields.fuDate)}</b>.</p>`;}
+  return '';
+}
+
+function render(){
+  const f=S.fields;
+  const logo=S.logo?`<img src="${S.logo}" alt="">`:'';
+  document.getElementById('sheet').innerHTML=`
+    <div class="head">${logo}<div class="ht">
+      <div class="hosp">${esc(f.hospital)||'Hospital Name'}</div>
+      <div class="dept">${esc(f.department)}</div>
+      <div class="doc">DISCHARGE SUMMARY</div>
+    </div>${S.logo?'<div style="width:52px"></div>':''}</div>
+    <div class="pt">
+      <div><b>Name:</b> ${esc(f.name)||'—'}</div><div><b>IP No:</b> ${esc(f.ipno)||'—'}</div>
+      <div><b>Age / Sex:</b> ${esc(f.age)||'—'} / ${esc(f.sex)||'—'}</div><div><b>Ward / Bed:</b> ${esc(f.ward)||'—'}</div>
+      <div><b>Admitted:</b> ${fmtDate(f.doa)}</div><div><b>Discharged:</b> ${fmtDate(f.dod)}${stay()}</div>
+    </div>
+    ${SECTIONS.map(sectionHTML).join('')}
+    <div class="sign">
+      <div class="b">${esc(f.preparedBy)||'&nbsp;'}<br><small>Prepared by</small></div>
+      <div class="b">${esc(f.consultant)||'&nbsp;'}<br><small>Consultant / Chief</small></div>
+    </div>`;
+}
+
+/* ============================================================
+   PDF generation (crisp vector text via jsPDF)
+   ============================================================ */
+function downloadPDF(){
+  try{
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({unit:'mm',format:'a4'});
+    const M=16,PW=210,PH=297,CW=PW-2*M;
+    let y=M;
+    const need=h=>{if(y+h>PH-M){doc.addPage();y=M;}};
+
+    // Header
+    let logoBox=0;
+    if(S.logo&&S.logoDims){
+      const max=20;let w=max,h=max;const r=S.logoDims.w/S.logoDims.h;
+      if(r>1)h=max/r;else w=max*r;
+      const fmt=/jpe?g/i.test(S.logo.slice(0,30))?'JPEG':'PNG';
+      try{doc.addImage(S.logo,fmt,M,y,w,h);}catch(e){}
+      logoBox=max;
+    }
+    doc.setFont('times','bold').setFontSize(16);
+    doc.text(S.fields.hospital||'Hospital Name',PW/2,y+6,{align:'center'});
+    doc.setFont('times','normal').setFontSize(10.5);
+    doc.text(S.fields.department||'',PW/2,y+11.5,{align:'center'});
+    doc.setFont('times','bold').setFontSize(11);
+    doc.text('DISCHARGE SUMMARY',PW/2,y+18,{align:'center',charSpace:1});
+    y+=Math.max(22,logoBox+2);
+    doc.setLineWidth(0.5);doc.line(M,y,PW-M,y);y+=6;
+
+    // Patient grid
+    const labVal=(x,yy,lab,val)=>{
+      doc.setFont('times','bold').setFontSize(10);doc.text(lab+': ',x,yy);
+      const w=doc.getTextWidth(lab+': ');
+      doc.setFont('times','normal');doc.text(String(val),x+w,yy);
+    };
+    const colR=M+CW/2;
+    labVal(M,y,'Name',S.fields.name||'—');       labVal(colR,y,'IP No',S.fields.ipno||'—');y+=5.5;
+    labVal(M,y,'Age / Sex',`${S.fields.age||'—'} / ${S.fields.sex||'—'}`);labVal(colR,y,'Ward / Bed',S.fields.ward||'—');y+=5.5;
+    labVal(M,y,'Admitted',fmtDate(S.fields.doa));labVal(colR,y,'Discharged',fmtDate(S.fields.dod)+stay());y+=8;
+
+    const heading=t=>{need(10);doc.setFont('helvetica','bold').setFontSize(9.5);
+      doc.text(t.toUpperCase(),M,y);y+=1.5;doc.setDrawColor(150);doc.setLineWidth(0.3);doc.line(M,y,PW-M,y);doc.setDrawColor(0);y+=4.5;};
+    const para=txt=>{doc.setFont('times','normal').setFontSize(11);
+      doc.splitTextToSize(txt,CW).forEach(ln=>{need(5.5);doc.text(ln,M,y);y+=5;});};
+    const bullets=items=>{doc.setFont('times','normal').setFontSize(11);
+      items.forEach(it=>{const lines=doc.splitTextToSize(it,CW-5);lines.forEach((ln,i)=>{need(5.5);
+        doc.text(i===0?'•':'',M,y);doc.text(ln,M+5,y);y+=5;});});};
+
+    SECTIONS.forEach(s=>{
+      if(s.kind==='multi'){const it=[...S.sel[s.id]];if(!it.length)return;heading(s.title);
+        s.join==='bullets'?bullets(it):para(joinBy(it,s.join));y+=2;}
+      else if(s.kind==='single'){const v=[...S.sel[s.id]][0];if(!v)return;heading(s.title);para(v);y+=2;}
+      else if(s.kind==='phrases'){const t=(S.freeText[s.id]||'').trim();if(!t)return;heading(s.title);para(t);y+=2;}
+      else if(s.kind==='meds'){const m=S.meds.filter(x=>x.name.trim());if(!m.length)return;heading(s.title);
+        doc.autoTable({startY:y,margin:{left:M,right:M},theme:'grid',
+          head:[['Drug','Dose','Frequency','Duration']],body:m.map(x=>[x.name,x.dose,x.freq,x.dur]),
+          styles:{font:'times',fontSize:10,cellPadding:1.6,lineColor:[120,120,120],lineWidth:0.2},
+          headStyles:{fillColor:[240,240,240],textColor:20,fontStyle:'bold'}});
+        y=doc.lastAutoTable.finalY+4;}
+      else if(s.kind==='followup'){const u=S.fields.fuUnit.trim();if(!u&&!S.fields.fuDate)return;heading(s.title);
+        para(`Review in ${u||'—'} on ${fmtDate(S.fields.fuDate)}.`);y+=2;}
+    });
+
+    // Signatures
+    need(24);y+=14;
+    const sig=(x,name,role)=>{doc.setLineWidth(0.4);doc.line(x,y,x+52,y);
+      doc.setFont('times','bold').setFontSize(10);doc.text(name||'',x+26,y+5,{align:'center'});
+      doc.setFont('times','normal').setFontSize(9);doc.setTextColor(90);doc.text(role,x+26,y+9.5,{align:'center'});doc.setTextColor(0);};
+    sig(M,S.fields.preparedBy,'Prepared by');
+    sig(PW-M-52,S.fields.consultant,'Consultant / Chief');
+
+    const fname='discharge-summary'+(S.fields.name?'-'+S.fields.name.replace(/\s+/g,'_'):'')+'.pdf';
+    doc.save(fname);
+  }catch(err){alert('Could not generate PDF: '+err.message);}
+}
+
+function togglePreview(){document.body.classList.toggle('show-preview');
+  document.getElementById('prevBtn').textContent=document.body.classList.contains('show-preview')?'‹ Edit':'Preview ›';}
+function clearAll(){if(confirm('Clear all selections and text?'))location.reload();}
+
+/* Init */
+const dl=document.createElement('datalist');dl.id='druglist';
+dl.innerHTML=DRUGS.map(d=>`<option value="${d}">`).join('');document.body.appendChild(dl);
+buildForm();render();
+</script>
+</body>
+</html>
