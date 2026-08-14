@@ -656,7 +656,7 @@ const COURSE_TEMPLATES=[
 /* ---------- state ---------- */
 let complaints=[], treatment=[], rxMeds=[];
 let invDates=[], invParams=[], invSeq=0;
-let logoData="";
+let logoData="omandurar_footer.jpg";
 let pastHistory=[], comorbidities=[], rxHistory=[];
 let ynState={physio:"",equip:"",dress:""};
 
@@ -850,7 +850,7 @@ function render(){
   const kind = val("summaryType").toUpperCase();
   const logoHTML = logoData
     ? `<img class="logo-box" src="${logoData}" alt="logo">`
-    : `<div class="logo-box empty">LOGO</div>`;
+    : `<img class="logo-box" src="omandurar_footer.jpg" alt="logo">`;
   let h="";
   h+=`<div class="doc-head">
     ${logoHTML}
